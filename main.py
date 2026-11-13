@@ -1,8 +1,11 @@
+"""Offline quantile forecaster for make.fun's polymarket-nvidia-ceo-forecast-01 bounty."""
+
 import json
+import math
 import os
 import statistics
 
-Z = [-1.644854, -0.67449, 0, 0.67449, 1.644854]
+Z = [-1.644854, -0.67449, 0.0, 0.67449, 1.644854]
 
 
 def clamp(val: float, lo: float, hi: float) -> float:
@@ -21,34 +24,32 @@ def mean_abs_change(prices: list[float]) -> float:
 
 
 def forecast_case(case: dict) -> dict:
-    horizon = int(case["horizon_minutes"])
+    horizon = int(case.get("horizon_minutes", 240))
     markets = case["markets"]
     stats = []
     for m in markets:
         prices = m["prices"]
         x = float(prices[-1])
         v = mean_abs_change(prices)
-        stats.append((m["id"], x, v))
+        stats.append((m["id"], x, v, len(prices)))
 
-    ref = statistics.median(v for _, _, v in stats) if stats else 0.0
+    ref = statistics.median(v for _, _, v, _ in stats) if stats else 0.0
     forecasts = []
-    for market_id, x, v in stats:
-        if ref > 1e-9:
-            scale = clamp((max(v, 1e-5) / ref) ** 0.2, 0.6, 1.8)
-        else:
+    for market_id, x, v, n_prices in stats:
+        if n_prices < 240 or ref <= 1e-9:
             scale = 1.0
+        else:
+            scale = clamp((max(v, 1e-5) / ref) ** 0.2, 0.6, 1.8)
 
         rows = []
         for h in range(1, horizon + 1):
-            s = 0.0012 * scale * (h ** 0.5)
+            s = 0.0012 * scale * math.sqrt(h)
             row = []
-            prev = 0.0
             for z_tau in Z:
                 q_tau = clamp(x + z_tau * s, 0.0, 1.0)
-                if q_tau < prev:
-                    q_tau = prev
+                if row:
+                    q_tau = max(row[-1], q_tau)
                 row.append(q_tau)
-                prev = q_tau
             rows.append(row)
         forecasts.append({"id": market_id, "q": rows})
 
