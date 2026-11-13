@@ -8,8 +8,10 @@ import statistics
 from typing import Any
 
 QUANTILES_Z: tuple[float, ...] = (-1.644854, -0.67449, 0.0, 0.67449, 1.644854)
-SIGMA_CENTRE: float = 0.35
-SIGMA_TAIL: float = 0.40
+SIGMA_CENTRE: float = 0.40
+SIGMA_TAIL: float = 0.60
+HORIZON_EXP: float = 0.45
+JUMP: float = 0.006
 SHRINK: float = 600.0
 VOL_WINDOW: int = 240
 MIN_VOL_SAMPLES: int = 10
@@ -56,11 +58,14 @@ def forecast_market_rows(
 
     rows: list[list[float]] = []
     for step in range(1, horizon + 1):
-        base = sigma * math.sqrt(step)
+        base = sigma * (step ** HORIZON_EXP)
         quantiles: list[float] = []
-        for z_val in QUANTILES_Z:
+        for idx, z_val in enumerate(QUANTILES_Z):
             k = SIGMA_CENTRE if abs(z_val) < 1.0 else SIGMA_TAIL
-            q_val = clip(logistic(eta + z_val * base * k), 0.0, 1.0)
+            q_val = logistic(eta + z_val * base * k)
+            if idx in (0, 4):
+                q_val += JUMP if z_val > 0 else -JUMP
+            q_val = clip(q_val, 0.0, 1.0)
             if quantiles and q_val < quantiles[-1]:
                 q_val = quantiles[-1]
             quantiles.append(q_val)
